@@ -209,11 +209,26 @@
 
   <div class="device-strip" id="deviceStrip">
     <span>Dispositivo: <b id="deviceLabel">—</b></span>
-    <button id="btnTrocarDispositivo">alterar</button>
+    <button id="btnTrocarDispositivo">trocar PIN</button>
+  </div>
+
+  <!-- AUTH SCREEN (bloqueia o formulário até validar PIN) -->
+  <div id="authScreen" style="display:none;">
+    <section class="card">
+      <p class="eyebrow">Autorização do dispositivo</p>
+      <p style="font-size:13.5px;color:var(--muted);margin:0 0 14px;">
+        Informe o PIN cadastrado para este celular. No primeiro uso, o PIN fica
+        vinculado permanentemente a este aparelho.
+      </p>
+      <label for="pinInput">PIN do dispositivo</label>
+      <input type="text" id="pinInput" inputmode="numeric" placeholder="Ex: 1234" autocomplete="off">
+      <div class="msg" id="authMsg" style="display:none;"></div>
+      <button class="submit" id="btnValidarPin" style="margin-top:16px;">Validar PIN</button>
+    </section>
   </div>
 
   <!-- FORM SCREEN -->
-  <div id="formScreen">
+  <div id="formScreen" style="display:none;">
     <section class="card">
       <p class="eyebrow">Localização do registro</p>
 
@@ -307,27 +322,96 @@ const RING_COLOR = { 'Congelado': '#49C9E8', 'Resfriado': '#7FAEDB', 'Seco': '#C
 let CONFIG = [];
 let fotos = []; // { base64, mimeType, dataUrl }
 let geo = { lat: null, lng: null, acc: null };
+let dispositivoNome = null;
 
-/* ---------- Dispositivo ---------- */
-function getDeviceId(){ return localStorage.getItem('checklist_device_id'); }
-function setDeviceId(id){ localStorage.setItem('checklist_device_id', id); renderDevice(); }
-function renderDevice(){
-  const id = getDeviceId();
-  document.getElementById('deviceLabel').textContent = id || 'não definido';
-}
-document.getElementById('btnTrocarDispositivo').addEventListener('click', () => {
-  const atual = getDeviceId() || '';
-  const novo = prompt('ID do dispositivo (ex: nome do celular/coletor):', atual);
-  if (novo && novo.trim()) setDeviceId(novo.trim());
-});
-(function initDevice(){
-  if (!getDeviceId()){
-    const novo = prompt('Primeiro uso — informe o ID deste dispositivo (ex: "Celular Portaria 1"):', '');
-    setDeviceId(novo && novo.trim() ? novo.trim() : 'Dispositivo-' + Math.random().toString(36).slice(2,7));
-  } else {
-    renderDevice();
+/* ---------- Identificador único do dispositivo (gerado uma vez, nunca exibido) ---------- */
+function getDeviceUuid(){
+  let uuid = localStorage.getItem('checklist_device_uuid');
+  if (!uuid){
+    uuid = (crypto.randomUUID ? crypto.randomUUID() :
+      'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      }));
+    localStorage.setItem('checklist_device_uuid', uuid);
   }
-})();
+  return uuid;
+}
+function getPin(){ return localStorage.getItem('checklist_device_pin'); }
+function setPin(pin){ localStorage.setItem('checklist_device_pin', pin); }
+function limparPin(){ localStorage.removeItem('checklist_device_pin'); }
+
+function renderDevice(){
+  document.getElementById('deviceLabel').textContent = dispositivoNome || 'não autorizado';
+}
+
+async function validarPin(pin){
+  const uuid = getDeviceUuid();
+  const res = await fetch(APPS_SCRIPT_URL + '?action=validarDispositivo&pin=' + encodeURIComponent(pin) + '&uuid=' + encodeURIComponent(uuid));
+  return res.json();
+}
+
+function mostrarTelaAuth(mensagemErro){
+  document.getElementById('formScreen').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'block';
+  const msg = document.getElementById('authMsg');
+  if (mensagemErro){ msg.textContent = mensagemErro; msg.style.display = 'block'; }
+  else { msg.style.display = 'none'; }
+}
+function mostrarTelaForm(){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('formScreen').style.display = 'block';
+}
+
+document.getElementById('btnValidarPin').addEventListener('click', async () => {
+  const pin = document.getElementById('pinInput').value.trim();
+  const btn = document.getElementById('btnValidarPin');
+  if (!pin){ mostrarTelaAuth('Informe o PIN.'); return; }
+  btn.disabled = true; btn.textContent = 'Validando...';
+  try{
+    const resultado = await validarPin(pin);
+    if (resultado.ok){
+      setPin(pin);
+      dispositivoNome = resultado.nomeDispositivo;
+      renderDevice();
+      mostrarTelaForm();
+    } else {
+      mostrarTelaAuth(resultado.mensagem || 'PIN inválido.');
+    }
+  } catch(err){
+    mostrarTelaAuth('Erro ao validar: ' + err.message);
+  }
+  btn.disabled = false; btn.textContent = 'Validar PIN';
+});
+
+document.getElementById('btnTrocarDispositivo').addEventListener('click', () => {
+  limparPin();
+  document.getElementById('pinInput').value = '';
+  mostrarTelaAuth();
+});
+
+async function initDevice(){
+  const pinSalvo = getPin();
+  if (!pinSalvo){
+    mostrarTelaAuth();
+    return false;
+  }
+  try{
+    const resultado = await validarPin(pinSalvo);
+    if (resultado.ok){
+      dispositivoNome = resultado.nomeDispositivo;
+      renderDevice();
+      mostrarTelaForm();
+      return true;
+    }
+    limparPin();
+    mostrarTelaAuth(resultado.mensagem || 'PIN inválido, informe novamente.');
+    return false;
+  } catch(err){
+    mostrarTelaAuth('Não foi possível validar o dispositivo. Verifique a conexão.');
+    return false;
+  }
+}
 
 /* ---------- Carregar config (Unidade/Armazém/Câmara/Tipo) ---------- */
 async function carregarConfig(){
@@ -535,8 +619,8 @@ document.getElementById('btnEnviar').addEventListener('click', async () => {
   const status = avaliarStatus(tipo, temperatura);
 
   const payload = {
+    pin: getPin(), uuid: getDeviceUuid(),
     unidade, armazem, camara, tipo, temperatura,
-    dispositivoId: getDeviceId(),
     latitude: geo.lat, longitude: geo.lng, precisaoGps: geo.acc,
     fotos: fotos.map(f => ({ base64: f.base64, mimeType: f.mimeType }))
   };
@@ -581,6 +665,7 @@ document.getElementById('btnNovo').addEventListener('click', () => {
   await carregarConfig();
   renderSelects();
   renderPhotoGrid();
+  await initDevice();
 })();
 </script>
 </body>
