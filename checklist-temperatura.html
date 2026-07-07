@@ -518,6 +518,8 @@ document.getElementById('btnValidarPin').addEventListener('click', async () => {
       setSenha(senha);
       dispositivoNome = resultado.nomeDispositivo;
       renderDevice();
+      await carregarConfig();
+      renderSelects();
       mostrarTelaForm();
     } else {
       mostrarTelaAuth(resultado.mensagem || 'PIN ou senha inválidos.');
@@ -565,7 +567,10 @@ async function initDevice(){
 async function carregarConfig(){
   try{
     if (APPS_SCRIPT_URL.indexOf('COLE_AQUI') === -1){
-      const res = await fetch(APPS_SCRIPT_URL + '?action=config');
+      const pin = getPin(), senha = getSenha(), uuid = getDeviceUuid();
+      let url = APPS_SCRIPT_URL + '?action=config';
+      if (pin && senha) url += '&pin=' + encodeURIComponent(pin) + '&senha=' + encodeURIComponent(senha) + '&uuid=' + encodeURIComponent(uuid);
+      const res = await fetch(url);
       const data = await res.json();
       if (data.ok && data.config && data.config.length) { CONFIG = data.config; return; }
     }
