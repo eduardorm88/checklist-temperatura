@@ -914,7 +914,9 @@ async function carregarRegistrosDoDia(data){
   msg.style.display = 'none';
   wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">Carregando...</span>';
   try{
-    const res = await fetch(APPS_SCRIPT_URL + '?action=porData&data=' + encodeURIComponent(data));
+    const url = APPS_SCRIPT_URL + '?action=porData&data=' + encodeURIComponent(data) +
+      '&pin=' + encodeURIComponent(getPin()) + '&senha=' + encodeURIComponent(getSenha()) + '&uuid=' + encodeURIComponent(getDeviceUuid());
+    const res = await fetch(url);
     const resData = await res.json();
     if (!resData.ok){ wrap.innerHTML = ''; msg.textContent = resData.erro || 'Erro ao listar.'; msg.style.display = 'block'; return; }
     if (!resData.registros.length){ wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">Nenhum registro nesta data.</span>'; return; }
@@ -962,7 +964,8 @@ document.getElementById('btnBuscarRegistro').addEventListener('click', async () 
   const btn = document.getElementById('btnBuscarRegistro');
   btn.disabled = true; btn.textContent = 'Buscando...';
   try{
-    let url = APPS_SCRIPT_URL + '?action=registro&id=' + encodeURIComponent(id);
+    let url = APPS_SCRIPT_URL + '?action=registro&id=' + encodeURIComponent(id) +
+      '&pin=' + encodeURIComponent(getPin()) + '&senha=' + encodeURIComponent(getSenha()) + '&uuid=' + encodeURIComponent(getDeviceUuid());
     if (pinBusca) url += '&dispositivoPin=' + encodeURIComponent(pinBusca);
     const res = await fetch(url);
     const data = await res.json();
@@ -988,14 +991,14 @@ document.getElementById('btnBuscarRegistro').addEventListener('click', async () 
     if (!data.ok){ msg.textContent = data.erro || 'Registro não encontrado.'; msg.style.display = 'block'; btn.disabled = false; btn.textContent = 'Buscar'; return; }
 
     resultadoAtual = data.registro;
-    await exibirResultado(data.registro, data.retificavelHoje, data.retificacoes);
+    await exibirResultado(data.registro, data.retificavelHoje, data.podeRetificar, data.retificacoes);
   } catch(err){
     msg.textContent = 'Erro na busca: ' + err.message; msg.style.display = 'block';
   }
   btn.disabled = false; btn.textContent = 'Buscar';
 });
 
-async function exibirResultado(registro, retificavelHoje, retificacoes){
+async function exibirResultado(registro, retificavelHoje, podeRetificar, retificacoes){
   document.getElementById('resultadoCard').style.display = 'block';
   const agora = new Date(registro.dataHora);
   document.getElementById('resultadoDetalhe').innerHTML = `
@@ -1021,8 +1024,14 @@ async function exibirResultado(registro, retificavelHoje, retificacoes){
   }
 
   const btnRet = document.getElementById('btnRetificarConsulta');
-  btnRet.disabled = !retificavelHoje;
-  btnRet.textContent = retificavelHoje ? 'Retificar' : 'Prazo de 12h para retificar expirou';
+  btnRet.disabled = !podeRetificar;
+  if (!retificavelHoje){
+    btnRet.textContent = 'Prazo de 12h para retificar expirou';
+  } else if (!podeRetificar){
+    btnRet.textContent = 'Só o dispositivo que gravou pode retificar';
+  } else {
+    btnRet.textContent = 'Retificar';
+  }
 
   const lista = document.getElementById('retificacoesLista');
   if (retificacoes && retificacoes.length){
