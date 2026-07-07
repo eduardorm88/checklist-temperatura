@@ -242,6 +242,16 @@
     padding:10px 12px;margin-top:8px;font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--muted);
   }
   .retificacao-item b{color:var(--text);}
+
+  .lista-tabela{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .lista-tabela th{
+    text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line);
+  }
+  .lista-tabela td{padding:8px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
+  .lista-tabela tr{cursor:pointer;}
+  .lista-tabela tr:hover td{background:var(--panel-alt);}
+  .lista-tabela tr.alerta td{color:var(--alerta);}
 </style>
 </head>
 <body>
@@ -364,6 +374,14 @@
   <!-- CONSULTA SCREEN -->
   <div id="consultaScreen" style="display:none;">
     <section class="card">
+      <p class="eyebrow">Registros do dia</p>
+      <label for="listaDataInput">Data</label>
+      <input type="date" id="listaDataInput">
+      <div class="msg" id="listaMsg" style="display:none;"></div>
+      <div id="listaRegistrosWrap" style="margin-top:12px;"></div>
+    </section>
+
+    <section class="card">
       <p class="eyebrow">Buscar registro por ID</p>
       <label for="buscaIdInput">ID do registro</label>
       <input type="text" id="buscaIdInput" placeholder="Ex: 0706001" inputmode="numeric">
@@ -473,6 +491,11 @@ function mostrarTab(tab){
     formScreen.style.display = 'none';
     consultaScreen.style.display = 'block';
     tabNovo.classList.remove('active'); tabConsulta.classList.add('active');
+    const dataInput = document.getElementById('listaDataInput');
+    if (!dataInput.value){
+      dataInput.value = dataLocalYyyyMmDd(new Date());
+      carregarRegistrosDoDia(dataInput.value);
+    }
   } else {
     consultaScreen.style.display = 'none';
     formScreen.style.display = 'block';
@@ -870,6 +893,56 @@ async function carregarFotoBase64(url){
 
 let resultadoAtual = null;
 let resultadoFotosDataUrl = [];
+
+/* ---------- Listagem de registros por data ---------- */
+function dataLocalYyyyMmDd(d){
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, '0');
+  const dia = String(d.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+async function carregarRegistrosDoDia(data){
+  const msg = document.getElementById('listaMsg');
+  const wrap = document.getElementById('listaRegistrosWrap');
+  msg.style.display = 'none';
+  wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">Carregando...</span>';
+  try{
+    const res = await fetch(APPS_SCRIPT_URL + '?action=porData&data=' + encodeURIComponent(data));
+    const resData = await res.json();
+    if (!resData.ok){ wrap.innerHTML = ''; msg.textContent = resData.erro || 'Erro ao listar.'; msg.style.display = 'block'; return; }
+    if (!resData.registros.length){ wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">Nenhum registro nesta data.</span>'; return; }
+
+    wrap.innerHTML = `
+      <table class="lista-tabela">
+        <thead><tr><th>ID</th><th>Hora</th><th>Arm</th><th>Cam</th></tr></thead>
+        <tbody>
+          ${resData.registros.map(r => `
+            <tr class="${r.status === 'ALERTA' ? 'alerta' : ''}" data-id="${r.idRegistro}" data-pin="${r.dispositivoPin}">
+              <td>${r.idRegistro}</td>
+              <td>${new Date(r.dataHora).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</td>
+              <td>${r.armazem}</td>
+              <td>${r.camara}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+
+    wrap.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        document.getElementById('buscaIdInput').value = tr.dataset.id;
+        document.getElementById('buscaPinInput').value = tr.dataset.pin;
+        document.getElementById('btnBuscarRegistro').click();
+      });
+    });
+  } catch(err){
+    wrap.innerHTML = '';
+    msg.textContent = 'Erro ao listar: ' + err.message; msg.style.display = 'block';
+  }
+}
+
+document.getElementById('listaDataInput').addEventListener('change', () => {
+  carregarRegistrosDoDia(document.getElementById('listaDataInput').value);
+});
 
 document.getElementById('btnBuscarRegistro').addEventListener('click', async () => {
   const id = document.getElementById('buscaIdInput').value.trim();
